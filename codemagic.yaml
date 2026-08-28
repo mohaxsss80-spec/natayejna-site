@@ -1,0 +1,18 @@
+workflows:
+  android-native-workflow:
+    name: Android Native APK Builder
+    max_build_duration: 10
+    instance_type: mac_mini_m1
+    environment:
+      android_ndk: latest
+      java: 17
+    triggering:
+      events:
+        - push
+    scripts:
+      - name: Build Android APK
+        script: |
+          gradle assembleDebug
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
+      - build/outputs/apk/debug/*.apk
