@@ -1,0 +1,4 @@
+data/admin_password.txt
+data/session_secret.txt
+static/uploads/*
+!static/uploads/.gitkeep
