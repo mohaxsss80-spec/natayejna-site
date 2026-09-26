@@ -13,7 +13,7 @@ form.addEventListener("submit", async (e) => {
     const res = await fetch("/api/results?" + params.toString());
     const data = await res.json();
     if (!data.length) {
-      box.innerHTML = '<span class="result-empty">لم نجد نتيجة مطابقة حاليًا. تأكد من البيانات أو أعد المحاولة لاحقًا.</span>';
+      box.innerHTML = '<span class="result-empty">تعذر الحصول على النتيجة تحقق من رقم الاكتتاب والمعلومات المدخلة</span>';
       return;
     }
     box.innerHTML = data.map(r => `
@@ -23,7 +23,7 @@ form.addEventListener("submit", async (e) => {
         <p>النتيجة: <b>${r.total ?? "-"} / ${r.max ?? "-"}</b></p>
       </div>`).join("");
   } catch {
-    box.innerHTML = '<span class="result-empty">تعذر الاتصال بالخادم. تأكد أن Termux ما زال يشغّل الموقع.</span>';
+    box.innerHTML = '<span class="result-empty">تعذر الحصول على النتيجة تحقق من رقم الاكتتاب والمعلومات المدخلة</span>';
   }
 });
 
