@@ -1,7 +1,9 @@
-from flask import Flask, render_template, jsonify, request, url_for
+from flask import Flask, render_template, jsonify, request, url_for, redirect, session
 import json
 import os
 import uuid
+import hmac
+import secrets
 from pathlib import Path
 from werkzeug.utils import secure_filename
 
@@ -13,6 +15,57 @@ SITE_CONFIG_FILE = DATA_DIR / "site_config.json"
 UPLOAD_DIR = BASE / "static" / "uploads"
 DATA_DIR.mkdir(exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+ADMIN_PASSWORD_FILE = DATA_DIR / "admin_password.txt"
+SESSION_SECRET_FILE = DATA_DIR / "session_secret.txt"
+
+
+def get_admin_password():
+    password = os.environ.get("ADMIN_PASSWORD", "").strip()
+    if password:
+        return password
+    try:
+        return ADMIN_PASSWORD_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def get_session_secret():
+    try:
+        secret = SESSION_SECRET_FILE.read_text(encoding="utf-8").strip()
+        if secret:
+            return secret
+    except Exception:
+        pass
+    secret = secrets.token_urlsafe(48)
+    try:
+        SESSION_SECRET_FILE.write_text(secret, encoding="utf-8")
+    except Exception:
+        pass
+    return secret
+
+
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", get_session_secret())
+
+
+@app.before_request
+def protect_admin_area():
+    is_admin_page = request.path == "/admin" or request.path.startswith("/admin/")
+    is_editor_api = request.path.startswith("/api/site-config") or request.path == "/api/upload"
+    if not (is_admin_page or is_editor_api):
+        return None
+    if request.path in {"/admin/login", "/admin/logout"}:
+        return None
+    if not get_admin_password():
+        if is_editor_api:
+            return jsonify({"error": "لم يتم إعداد كلمة مرور لوحة التحكم بعد"}), 503
+        return render_template("admin_login.html", error="أنشئ ملف admin_password.txt أولًا في مجلد data")
+    if not session.get("admin_authenticated"):
+        if is_editor_api:
+            return jsonify({"error": "يجب تسجيل الدخول أولًا"}), 401
+        return redirect(url_for("admin_login"))
+    return None
+
 
 DEFAULT_CONFIG = {
     "site_name": "نتائجنا",
@@ -59,6 +112,25 @@ def save_config(config):
 @app.get("/")
 def home():
     return render_template("index.html", config=load_config())
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    error = None
+    password = get_admin_password()
+    if request.method == "POST":
+        entered = request.form.get("password", "")
+        if password and hmac.compare_digest(entered, password):
+            session["admin_authenticated"] = True
+            return redirect(url_for("admin"))
+        error = "كلمة المرور غير صحيحة"
+    return render_template("admin_login.html", error=error, configured=bool(password))
+
+
+@app.get("/admin/logout")
+def admin_logout():
+    session.clear()
+    return redirect(url_for("admin_login"))
 
 
 @app.get("/admin")
