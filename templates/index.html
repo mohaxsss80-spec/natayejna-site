@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#031613">
-  <title>نتائجنا | نتائج الطلاب في سوريا</title>
+  <title>{{ config.site_name|e }} | نتائج الطلاب في سوريا</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -22,12 +22,13 @@
   </div>
 
   <header class="nav">
-    <div class="brand"><b>XS</b><span>المطور</span></div>
+    <div class="brand"><b>{{ config.site_name|e }}</b><span>{{ config.developer|e }}</span></div>
     <nav>
       <a class="active" href="#home">الرئيسية</a>
       <a href="#results">نتائج الطلاب</a>
       <a href="#branches">الفروع</a>
       <a href="#about">عن الموقع</a>
+      <a href="/admin">لوحة التحكم</a>
     </nav>
     <button class="theme" id="themeBtn" aria-label="تبديل الوضع">☾</button>
   </header>
@@ -41,7 +42,7 @@
         </div>
         <div class="eyebrow">منصة طلاب سوريا</div>
         <h1>منصة <strong>نتائجنا</strong></h1>
-        <p>نتائج الطلاب في سوريا — وصول سريع، تصميم عصري، وتجربة سهلة على الهاتف.</p>
+        <p>{{ config.tagline|e }} — وصول سريع، تصميم عصري، وتجربة سهلة على الهاتف.</p>
         <div class="hero-actions">
           <a href="#results" class="btn primary">ابحث عن نتيجتك <span>⌕</span></a>
           <a href="#branches" class="btn ghost">استعرض الفروع</a>
@@ -53,6 +54,18 @@
         <div class="map-label">سوريا</div>
       </div>
     </section>
+
+{% if config.elements %}
+    <section class="custom-stage" style="--custom-bg: {{ config.background|e }}; --custom-accent: {{ config.accent|e }};">
+      <div class="custom-stage-inner">
+        {% for item in config.elements %}
+        <div class="custom-item" style="left:{{ item.get('x', 0) }}%;top:{{ item.get('y', 0) }}%;width:{{ item.get('w', 40) }}%;height:{{ item.get('h', 15) }}%;color:{{ item.get('color', '#ffffff')|e }};font-size:{{ item.get('fontSize', 28) }}px;background:{{ item.get('background', 'transparent')|e }};border-radius:{{ item.get('radius', 12) }}px;text-align:{{ item.get('align', 'center') }};">
+          {% if item.get('type') == 'image' and item.get('src') %}<img src="{{ item.get('src')|e }}" alt="صورة من لوحة التحكم">{% elif item.get('type') == 'shape' %}<span class="custom-shape"></span>{% else %}<span>{{ item.get('text', '')|e }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
 
     <section class="search-card" id="results">
       <div class="section-title">
@@ -118,7 +131,7 @@
   <footer>
     <div class="footer-eagle"><img src="{{ url_for('static', filename='eagle.jpg') }}" alt=""></div>
     <div><b>نتائجنا</b> — منصة نتائج الطلاب في سوريا</div>
-    <small>جميع الحقوق محفوظة © 2026 — المطور <strong>XS</strong></small>
+    <small>جميع الحقوق محفوظة © 2026 — المطور <strong>{{ config.developer|e }}</strong></small>
   </footer>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
