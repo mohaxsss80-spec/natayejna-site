@@ -7,7 +7,7 @@
   <title>{{ config.site_name|e }} | نتائج الطلاب في سوريا</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body style="--site-bg: {{ config.background|e }}; --site-bg-image: {% if config.get('background_image') %}url('{{ config.background_image|e }}'){% else %}none{% endif %};">
   <div class="preloader" id="preloader">
     <div class="preloader-glow"></div>
     <img src="{{ url_for('static', filename='eagle.jpg') }}" alt="الشعار السوري">
