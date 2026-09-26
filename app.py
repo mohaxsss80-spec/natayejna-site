@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 app = Flask(__name__)
-BASE = Path(__file__).resolve().parent.parent
+BASE = Path(__file__).resolve().parent
 DATA_FILE = BASE / "data" / "results.json"
 
 def load_results():
