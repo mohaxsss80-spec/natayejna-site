@@ -73,6 +73,7 @@ DEFAULT_CONFIG = {
     "tagline": "منصة طلاب سوريا",
     "background": "#031613",
     "accent": "#43e36b",
+    "background_image": "",
     "elements": []
 }
 
@@ -104,6 +105,7 @@ def save_config(config):
     clean["tagline"] = str(clean.get("tagline", "منصة طلاب سوريا"))[:200]
     clean["background"] = str(clean.get("background", "#031613"))[:40]
     clean["accent"] = str(clean.get("accent", "#43e36b"))[:40]
+    clean["background_image"] = str(clean.get("background_image", ""))[:500]
     clean["elements"] = clean.get("elements", [])[:100] if isinstance(clean.get("elements"), list) else []
     SITE_CONFIG_FILE.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
     return clean
