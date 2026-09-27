@@ -7,7 +7,7 @@
   <title>{{ config.site_name|e }} | نتائج الطلاب في سوريا</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="{% if config.get('background_image') %}has-background-image{% endif %}" style="--site-bg: {{ config.background|e }}; --site-bg-image: {% if config.get('background_image') %}url('{{ config.background_image|e }}'){% else %}none{% endif %};">
+<body>
   <div class="preloader" id="preloader">
     <div class="preloader-glow"></div>
     <img src="{{ url_for('static', filename='eagle.jpg') }}" alt="الشعار السوري">
@@ -28,6 +28,7 @@
       <a href="#results">نتائج الطلاب</a>
       <a href="#branches">الفروع</a>
       <a href="#about">عن الموقع</a>
+      <a href="/admin">لوحة التحكم</a>
     </nav>
     <button class="theme" id="themeBtn" aria-label="تبديل الوضع">☾</button>
   </header>
@@ -47,14 +48,19 @@
           <a href="#branches" class="btn ghost">استعرض الفروع</a>
         </div>
       </div>
+      <div class="syria-orbit">
+        <div class="orbit o1"></div>
+        <div class="orbit o2"></div>
+        <div class="map-label">سوريا</div>
+      </div>
     </section>
 
 {% if config.elements %}
     <section class="custom-stage" style="--custom-bg: {{ config.background|e }}; --custom-accent: {{ config.accent|e }};">
-      <div class="custom-stage-inner {% if config.get('background_image') %}has-background-image{% endif %}">
+      <div class="custom-stage-inner">
         {% for item in config.elements %}
-        <div class="custom-item" style="left:{{ item.get('x', 0) }}%;top:{{ item.get('y', 0) }}%;width:{{ item.get('w', 40) }}%;height:{{ item.get('h', 15) }}%;color:{{ item.get('color', '#ffffff')|e }};font-size:{{ item.get('fontSize', 28) }}px;background:{{ item.get('background', 'transparent')|e }};border-radius:{{ item.get('radius', 12) }}px;text-align:{{ item.get('align', 'center') }};font-family:{{ item.get('fontFamily', 'Cairo')|e }},Tahoma,sans-serif;font-weight:{{ item.get('fontWeight', 700) }};text-shadow:{{ '0 4px 18px #000b' if item.get('shadow') else 'none' }};">
-          {% if item.get('type') == 'image' and item.get('src') %}<img src="{{ item.get('src')|e }}" alt="صورة من لوحة التحكم">{% elif item.get('type') == 'shape' %}<span class="custom-shape" style="--shape-color:{{ item.get('background', config.accent)|e }}"></span>{% else %}<span>{{ item.get('text', '')|e }}</span>{% endif %}
+        <div class="custom-item" style="left:{{ item.get('x', 0) }}%;top:{{ item.get('y', 0) }}%;width:{{ item.get('w', 40) }}%;height:{{ item.get('h', 15) }}%;color:{{ item.get('color', '#ffffff')|e }};font-size:{{ item.get('fontSize', 28) }}px;background:{{ item.get('background', 'transparent')|e }};border-radius:{{ item.get('radius', 12) }}px;text-align:{{ item.get('align', 'center') }};">
+          {% if item.get('type') == 'image' and item.get('src') %}<img src="{{ item.get('src')|e }}" alt="صورة من لوحة التحكم">{% elif item.get('type') == 'shape' %}<span class="custom-shape"></span>{% else %}<span>{{ item.get('text', '')|e }}</span>{% endif %}
         </div>
         {% endfor %}
       </div>
@@ -117,6 +123,7 @@
     <section id="about" class="stats">
       <div><b>24/7</b><span>متاح على مدار الساعة</span></div>
       <div><b>سريع</b><span>بحث مباشر عن النتيجة</span></div>
+      <div><b>XS</b><span>تطوير وتصميم المنصة</span></div>
       <div><b>∞</b><span>تجربة متجاوبة للهاتف</span></div>
     </section>
   </main>
