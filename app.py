@@ -18,8 +18,6 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_PASSWORD_FILE = DATA_DIR / "admin_password.txt"
 SESSION_SECRET_FILE = DATA_DIR / "session_secret.txt"
-ADMIN_ENTRY_PATH = os.environ.get("ADMIN_ENTRY_PATH", "control-ntj-7f4c").strip("/")
-ADMIN_ENTRY_URL = f"/{ADMIN_ENTRY_PATH}"
 
 
 def get_admin_password():
@@ -52,21 +50,16 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", get_session_secret())
 
 @app.before_request
 def protect_admin_area():
-    admin_paths = {
-        ADMIN_ENTRY_URL,
-        f"{ADMIN_ENTRY_URL}/login",
-        f"{ADMIN_ENTRY_URL}/logout",
-    }
-    is_admin_page = request.path in admin_paths
+    is_admin_page = request.path == "/admin" or request.path.startswith("/admin/")
     is_editor_api = request.path.startswith("/api/site-config") or request.path == "/api/upload"
     if not (is_admin_page or is_editor_api):
         return None
-    if request.path in {f"{ADMIN_ENTRY_URL}/login", f"{ADMIN_ENTRY_URL}/logout"}:
+    if request.path in {"/admin/login", "/admin/logout"}:
         return None
     if not get_admin_password():
         if is_editor_api:
             return jsonify({"error": "لم يتم إعداد كلمة مرور لوحة التحكم بعد"}), 503
-        return render_template("admin_login.html", error="لم يتم إعداد كلمة مرور لوحة التحكم بعد")
+        return render_template("admin_login.html", error="أنشئ ملف admin_password.txt أولًا في مجلد data")
     if not session.get("admin_authenticated"):
         if is_editor_api:
             return jsonify({"error": "يجب تسجيل الدخول أولًا"}), 401
@@ -80,7 +73,6 @@ DEFAULT_CONFIG = {
     "tagline": "منصة طلاب سوريا",
     "background": "#031613",
     "accent": "#43e36b",
-    "background_image": "",
     "elements": []
 }
 
@@ -112,7 +104,6 @@ def save_config(config):
     clean["tagline"] = str(clean.get("tagline", "منصة طلاب سوريا"))[:200]
     clean["background"] = str(clean.get("background", "#031613"))[:40]
     clean["accent"] = str(clean.get("accent", "#43e36b"))[:40]
-    clean["background_image"] = str(clean.get("background_image", ""))[:500]
     clean["elements"] = clean.get("elements", [])[:100] if isinstance(clean.get("elements"), list) else []
     SITE_CONFIG_FILE.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
     return clean
@@ -123,7 +114,7 @@ def home():
     return render_template("index.html", config=load_config())
 
 
-@app.route(f"/{ADMIN_ENTRY_PATH}/login", methods=["GET", "POST"])
+@app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     error = None
     password = get_admin_password()
@@ -136,21 +127,15 @@ def admin_login():
     return render_template("admin_login.html", error=error, configured=bool(password))
 
 
-@app.get(f"/{ADMIN_ENTRY_PATH}/logout")
+@app.get("/admin/logout")
 def admin_logout():
     session.clear()
     return redirect(url_for("admin_login"))
 
 
-@app.get(f"/{ADMIN_ENTRY_PATH}")
+@app.get("/admin")
 def admin():
     return render_template("admin.html", config=load_config())
-
-
-@app.get("/admin")
-@app.get("/admin/login")
-def legacy_admin_path():
-    return redirect(url_for("home"))
 
 
 @app.get("/api/site-config")
