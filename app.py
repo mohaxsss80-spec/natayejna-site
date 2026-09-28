@@ -6,6 +6,9 @@ import hmac
 import secrets
 from pathlib import Path
 from werkzeug.utils import secure_filename
+import urllib.error
+import urllib.parse
+import urllib.request
 
 app = Flask(__name__)
 BASE = Path(__file__).resolve().parent
@@ -162,22 +165,72 @@ def upload_image():
     return jsonify({"url": url_for("static", filename="uploads/" + filename)})
 
 
+EXAM_API_BASE_URL = os.environ.get("EXAM_API_BASE_URL", "https://examresult.edu-access.net").rstrip("/")
+EXAM_RESULTS_PATH = os.environ.get("EXAM_RESULTS_PATH", "/directorateResultsNew/")
+
+def _rows_from_upstream(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("results", "data", "items", "rows", "result"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                return [value]
+        return [payload]
+    return []
+
+def _normalize_upstream_row(row):
+    if not isinstance(row, dict):
+        return {"name": str(row)}
+    normalized = dict(row)
+    aliases = {
+        "name": ("name", "student_name", "full_name"),
+        "seat_number": ("seat_number", "number", "student_number", "subscription_number"),
+        "branch": ("branch", "programme", "program", "examination_programme"),
+        "stage": ("stage", "class_name", "class"),
+        "governorate": ("governorate", "directorate_name", "governorate_name"),
+        "total": ("total", "final_mark", "exam_mark", "result"),
+        "max": ("max", "max_mark", "certificate_total"),
+    }
+    for target, keys in aliases.items():
+        if normalized.get(target) in (None, ""):
+            for key in keys:
+                if normalized.get(key) not in (None, ""):
+                    normalized[target] = normalized[key]
+                    break
+    return normalized
+
+def _fetch_upstream_results(filters):
+    query = urllib.parse.urlencode({key: value for key, value in filters.items() if value})
+    url = EXAM_API_BASE_URL + "/" + EXAM_RESULTS_PATH.lstrip("/")
+    if query:
+        url += "?" + query
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/json",
+        "User-Agent": "natayejna-site/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return [_normalize_upstream_row(row) for row in _rows_from_upstream(payload)], None
+    except urllib.error.HTTPError as exc:
+        return [], f"خدمة النتائج أعادت الحالة {exc.code}"
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        return [], f"تعذر الاتصال بخدمة النتائج: {exc}"
+
 @app.get("/api/results")
 def results():
-    number = request.args.get("number", "").strip()
-    branch = request.args.get("branch", "").strip()
-    stage = request.args.get("stage", "").strip()
-    governorate = request.args.get("governorate", "").strip()
-
-    rows = load_results()
-    if number:
-        rows = [r for r in rows if r.get("seat_number", "") == number]
-    if branch:
-        rows = [r for r in rows if r.get("branch", "") == branch]
-    if stage:
-        rows = [r for r in rows if r.get("stage", "") == stage]
-    if governorate:
-        rows = [r for r in rows if r.get("governorate", "") == governorate]
+    filters = {
+        "number": request.args.get("number", "").strip(),
+        "branch": request.args.get("branch", "").strip(),
+        "stage": request.args.get("stage", "").strip(),
+        "governorate": request.args.get("governorate", "").strip(),
+    }
+    rows, error = _fetch_upstream_results(filters)
+    if error:
+        return jsonify({"error": error}), 502
     return jsonify(rows)
 
 
