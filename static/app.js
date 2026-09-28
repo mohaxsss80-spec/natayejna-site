@@ -11,8 +11,9 @@ form.addEventListener("submit", async (e) => {
   box.innerHTML = '<span class="result-good">جاري البحث عن النتيجة...</span>';
   try {
     const res = await fetch("/api/results?" + params.toString());
+    if (!res.ok) throw new Error("upstream results request failed");
     const data = await res.json();
-    if (!data.length) {
+    if (!Array.isArray(data) || !data.length) {
       box.innerHTML = '<span class="result-empty">لم نجد نتيجة مطابقة حاليًا. تأكد من البيانات أو أعد المحاولة لاحقًا.</span>';
       return;
     }
@@ -23,7 +24,7 @@ form.addEventListener("submit", async (e) => {
         <p>النتيجة: <b>${r.total ?? "-"} / ${r.max ?? "-"}</b></p>
       </div>`).join("");
   } catch {
-    box.innerHTML = '<span class="result-empty">تعذر الاتصال بالخادم. تأكد أن Termux ما زال يشغّل الموقع.</span>';
+    box.innerHTML = '<span class="result-empty">تعذر الوصول إلى خدمة النتائج حاليًا. حاول مرة ثانية لاحقًا.</span>';
   }
 });
 
