@@ -203,7 +203,16 @@ def _normalize_upstream_row(row):
     return normalized
 
 def _fetch_upstream_results(filters):
-    query = urllib.parse.urlencode({key: value for key, value in filters.items() if value})
+    api_filters = dict(filters)
+    alias_map = {
+        "branch": "examination_programme",
+        "stage": "class_name",
+        "governorate": "directorate_name",
+    }
+    for source, target in alias_map.items():
+        if filters.get(source):
+            api_filters[target] = filters[source]
+    query = urllib.parse.urlencode({key: value for key, value in api_filters.items() if value})
     url = EXAM_API_BASE_URL + "/" + EXAM_RESULTS_PATH.lstrip("/")
     if query:
         url += "?" + query
@@ -227,6 +236,9 @@ def results():
         "branch": request.args.get("branch", "").strip(),
         "stage": request.args.get("stage", "").strip(),
         "governorate": request.args.get("governorate", "").strip(),
+        "exam_year": request.args.get("exam_year", "").strip(),
+        "examination_period_id": request.args.get("examination_period_id", "").strip(),
+        "birth_date": request.args.get("birth_date", "").strip(),
     }
     rows, error = _fetch_upstream_results(filters)
     if error:
