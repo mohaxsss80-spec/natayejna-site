@@ -28,6 +28,7 @@
       <a href="#results">نتائج الطلاب</a>
       <a href="#branches">الفروع</a>
       <a href="#about">عن الموقع</a>
+      {% if session.get('user_id') %}<a href="/account">حسابي</a>{% else %}<a href="/login">تسجيل الدخول</a><a href="/register">إنشاء حساب</a>{% endif %}
       <a href="/admin">لوحة التحكم</a>
     </nav>
     <button class="theme" id="themeBtn" aria-label="تبديل الوضع">☾</button>
