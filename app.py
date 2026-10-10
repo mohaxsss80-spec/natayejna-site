@@ -1,11 +1,17 @@
-from flask import Flask, render_template, jsonify, request, url_for, redirect, session
+from flask import Flask, render_template, jsonify, request, url_for, redirect, session, abort
+import hashlib
 import json
 import os
-import uuid
-import hmac
+import re
 import secrets
+import sqlite3
+import time
+import hmac
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,6 +21,7 @@ BASE = Path(__file__).resolve().parent
 DATA_DIR = BASE / "data"
 DATA_FILE = DATA_DIR / "results.json"
 SITE_CONFIG_FILE = DATA_DIR / "site_config.json"
+AUTH_DATABASE_PATH = Path(os.environ.get("AUTH_DATABASE_PATH", str(DATA_DIR / "accounts.sqlite3"))).expanduser()
 UPLOAD_DIR = BASE / "static" / "uploads"
 DATA_DIR.mkdir(exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,6 +56,121 @@ def get_session_secret():
 
 
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", get_session_secret())
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in {"1", "true", "yes"},
+)
+
+
+@contextmanager
+def auth_db():
+    AUTH_DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(AUTH_DATABASE_PATH), timeout=10)
+    connection.row_factory = sqlite3.Row
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def init_auth_db():
+    with auth_db() as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                password_hash TEXT NOT NULL,
+                share_email INTEGER NOT NULL DEFAULT 0,
+                share_email_consented_at TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS auth_rate_limits (
+                scope TEXT NOT NULL,
+                client_hash TEXT NOT NULL,
+                window_start INTEGER NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (scope, client_hash, window_start)
+            )
+        """)
+    try:
+        os.chmod(AUTH_DATABASE_PATH, 0o600)
+    except OSError:
+        pass
+
+
+init_auth_db()
+
+
+def csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {"csrf_token": csrf_token}
+
+
+@app.before_request
+def protect_csrf():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    expected = session.get("_csrf_token", "")
+    supplied = request.form.get("csrf_token", "") or request.headers.get("X-CSRF-Token", "")
+    if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "طلب غير صالح؛ أعد تحميل الصفحة وحاول مجدداً"}), 400
+        abort(400, description="رمز الحماية غير صالح؛ أعد تحميل الصفحة وحاول مجدداً")
+    return None
+
+
+def auth_rate_limited(scope, limit, window_seconds):
+    remote = request.remote_addr or "unknown"
+    key = hmac.new(str(app.secret_key).encode("utf-8"), f"{scope}:{remote}".encode("utf-8"), hashlib.sha256).hexdigest()
+    now = int(time.time())
+    window_start = now - (now % window_seconds)
+    with auth_db() as connection:
+        connection.execute("DELETE FROM auth_rate_limits WHERE window_start < ?", (now - 86400,))
+        connection.execute(
+            "INSERT INTO auth_rate_limits (scope, client_hash, window_start, attempts) VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(scope, client_hash, window_start) DO UPDATE SET attempts = attempts + 1",
+            (scope, key, window_start),
+        )
+        row = connection.execute(
+            "SELECT attempts FROM auth_rate_limits WHERE scope = ? AND client_hash = ? AND window_start = ?",
+            (scope, key, window_start),
+        ).fetchone()
+    return bool(row and row["attempts"] > limit)
+
+
+def account_by_id(user_id):
+    try:
+        numeric_id = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    with auth_db() as connection:
+        return connection.execute(
+            "SELECT id, email, share_email, share_email_consented_at, created_at FROM accounts WHERE id = ?",
+            (numeric_id,),
+        ).fetchone()
+
+
+@app.after_request
+def prevent_private_page_caching(response):
+    if request.path in {"/login", "/register", "/account", "/admin/users"}:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @app.before_request
@@ -117,6 +239,87 @@ def home():
     return render_template("index.html", config=load_config())
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = None
+    status = 200
+    if request.method == "POST":
+        if auth_rate_limited("register", 5, 3600):
+            return render_template("account_auth.html", mode="register", error="محاولات كثيرة. حاول مرة أخرى بعد قليل."), 429
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        share_email = request.form.get("share_email") == "on"
+        if len(email) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            error, status = "أدخل بريداً إلكترونياً صالحاً.", 400
+        elif len(password) < 12 or len(password) > 256:
+            error, status = "يجب أن تكون كلمة المرور بين 12 و256 حرفاً.", 400
+        elif password != confirm_password:
+            error, status = "كلمتا المرور غير متطابقتين.", 400
+        else:
+            created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            consented_at = created_at if share_email else None
+            try:
+                with auth_db() as connection:
+                    cursor = connection.execute(
+                        "INSERT INTO accounts (email, password_hash, share_email, share_email_consented_at, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (email, generate_password_hash(password), int(share_email), consented_at, created_at),
+                    )
+                    user_id = cursor.lastrowid
+            except sqlite3.IntegrityError:
+                error, status = "يوجد حساب بهذا البريد الإلكتروني بالفعل.", 409
+            else:
+                session.clear()
+                session["user_id"] = user_id
+                session.permanent = True
+                return redirect(url_for("account", created=1))
+    return render_template("account_auth.html", mode="register", error=error), status
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    status = 200
+    if request.method == "POST":
+        if auth_rate_limited("login", 10, 900):
+            return render_template("account_auth.html", mode="login", error="محاولات كثيرة. حاول مرة أخرى بعد 15 دقيقة."), 429
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        with auth_db() as connection:
+            user = connection.execute("SELECT id, password_hash FROM accounts WHERE email = ?", (email,)).fetchone()
+        if user and check_password_hash(user["password_hash"], password):
+            session.clear()
+            session["user_id"] = user["id"]
+            session.permanent = True
+            return redirect(url_for("account"))
+        error, status = "البريد الإلكتروني أو كلمة المرور غير صحيحة.", 401
+    return render_template("account_auth.html", mode="login", error=error), status
+
+
+@app.route("/account", methods=["GET", "POST"])
+def account():
+    user = account_by_id(session.get("user_id"))
+    if user is None:
+        session.pop("user_id", None)
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        share_email = request.form.get("share_email") == "on"
+        consented_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if share_email else None
+        with auth_db() as connection:
+            connection.execute(
+                "UPDATE accounts SET share_email = ?, share_email_consented_at = ? WHERE id = ?",
+                (int(share_email), consented_at, user["id"]),
+            )
+        return redirect(url_for("account", updated=1))
+    return render_template("account.html", user=user, created=request.args.get("created") == "1", updated=request.args.get("updated") == "1")
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("home"))
+
+
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     error = None
@@ -124,13 +327,15 @@ def admin_login():
     if request.method == "POST":
         entered = request.form.get("password", "")
         if password and hmac.compare_digest(entered, password):
+            session.clear()
             session["admin_authenticated"] = True
+            session.permanent = True
             return redirect(url_for("admin"))
         error = "كلمة المرور غير صحيحة"
     return render_template("admin_login.html", error=error, configured=bool(password))
 
 
-@app.get("/admin/logout")
+@app.post("/admin/logout")
 def admin_logout():
     session.clear()
     return redirect(url_for("admin_login"))
@@ -139,6 +344,15 @@ def admin_logout():
 @app.get("/admin")
 def admin():
     return render_template("admin.html", config=load_config())
+
+
+@app.get("/admin/users")
+def admin_users():
+    with auth_db() as connection:
+        users = connection.execute(
+            "SELECT email, share_email_consented_at, created_at FROM accounts WHERE share_email = 1 ORDER BY id DESC"
+        ).fetchall()
+    return render_template("admin_users.html", users=users)
 
 
 @app.get("/api/site-config")
